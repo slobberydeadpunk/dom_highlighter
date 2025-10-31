@@ -1,0 +1,43 @@
+@keyframes __dh_flash_hover {
+  0% {
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.36);
+    opacity: 0.75;
+  }
+  100% {
+    box-shadow: 0 0 0 7px rgba(13, 110, 253, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes __dh_flash_lock {
+  0% {
+    box-shadow: 0 0 0 2px rgba(253, 126, 20, 0.4);
+    opacity: 0.78;
+  }
+  100% {
+    box-shadow: 0 0 0 9px rgba(253, 126, 20, 0);
+    opacity: 1;
+  }
+}
+
+.__dh-hover {
+  outline: 2px solid rgba(13, 110, 253, 0.95) !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.24) !important;
+  animation: __dh_flash_hover 900ms ease-in-out infinite alternate !important;
+  transition: outline-color 120ms ease-in-out;
+}
+
+.__dh-locked {
+  outline: 2px solid rgba(253, 126, 20, 0.95) !important;
+  outline-offset: 4px !important;
+  box-shadow: 0 0 0 2px rgba(253, 126, 20, 0.28) !important;
+  animation: __dh_flash_lock 1100ms ease-in-out infinite alternate !important;
+  transition: outline-color 120ms ease-in-out;
+}
+
+.__dh-hover.__dh-locked {
+  outline-color: rgba(253, 126, 20, 0.95) !important;
+  box-shadow: 0 0 0 2px rgba(253, 126, 20, 0.3) !important;
+  animation: __dh_flash_lock 1100ms ease-in-out infinite alternate !important;
+}

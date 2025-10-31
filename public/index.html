@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DOM Highlighter</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="controls">
+        <h1>DOM Highlighter</h1>
+        <form id="preview-form">
+          <label for="url-input">Enter a URL to preview</label>
+          <div class="input-row">
+            <input
+              id="url-input"
+              type="text"
+              placeholder="https://example.com"
+              autocomplete="off"
+            />
+            <button type="submit">Preview</button>
+          </div>
+        </form>
+        <p class="note">Hover to preview highlights. Click to lock them.</p>
+        <p class="note small">
+          Press Esc to clear locked highlights. Hold a modifier key (Shift, Cmd,
+          Alt, or Ctrl) while clicking to interact with the page as usual.
+        </p>
+        <p class="note small">
+          Tip: If a site fails to load, try including the https:// prefix or
+          choose a page that allows fetching by this tool.
+        </p>
+      </section>
+      <section class="preview">
+        <iframe
+          id="preview-frame"
+          title="Preview frame"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
+        ></iframe>
+      </section>
+    </main>
+    <script src="/main.js"></script>
+  </body>
+</html>
