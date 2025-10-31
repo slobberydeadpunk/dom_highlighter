@@ -41,3 +41,55 @@
   box-shadow: 0 0 0 2px rgba(253, 126, 20, 0.3) !important;
   animation: __dh_flash_lock 1100ms ease-in-out infinite alternate !important;
 }
+
+#__dh-note-root {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 2147483647;
+}
+
+.__dh-note {
+  position: absolute;
+  max-width: 260px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(12, 84, 199, 0.92);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.35;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+  transform-origin: top left;
+  transition: transform 70ms linear, opacity 120ms ease-in-out;
+  backdrop-filter: blur(2px);
+}
+
+.__dh-note.__dh-note--locked {
+  background: rgba(205, 88, 8, 0.94);
+}
+
+.__dh-note[data-hidden="true"] {
+  opacity: 0;
+}
+
+.__dh-note-order {
+  font-weight: 600;
+  margin-bottom: 4px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.__dh-note-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  opacity: 0.95;
+}
+
+.__dh-note.__dh-note--empty .__dh-note-text {
+  opacity: 0.7;
+}

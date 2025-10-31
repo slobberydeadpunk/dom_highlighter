@@ -9,9 +9,7 @@
   <body>
     <main class="app">
       <section class="controls">
-        <h1>DOM Highlighter</h1>
         <form id="preview-form">
-          <label for="url-input">Enter a URL to preview</label>
           <div class="input-row">
             <input
               id="url-input"
@@ -22,15 +20,32 @@
             <button type="submit">Preview</button>
           </div>
         </form>
-        <p class="note">Hover to preview highlights. Click to lock them.</p>
-        <p class="note small">
-          Press Esc to clear locked highlights. Hold a modifier key (Shift, Cmd,
-          Alt, or Ctrl) while clicking to interact with the page as usual.
+      </section>
+      <section class="annotations">
+        <div class="annotations-header">
+          <!--<h2>Highlights</h2>-->
+          <div class="annotation-actions">
+            <button id="replay-sequence" type="button">Replay</button>
+            <button id="export-json" type="button">Export JSON</button>
+            <label class="import-button">
+              Import
+              <input
+                id="import-json"
+                type="file"
+                accept="application/json"
+              />
+            </label>
+          </div>
+        </div>
+        <p class="annotations-tip">
+          Click on the preview to lock an element. Add notes below. Double-click
+          a highlighted element to remove it. Use Replay to reapply highlights
+          from the list.
         </p>
-        <p class="note small">
-          Tip: If a site fails to load, try including the https:// prefix or
-          choose a page that allows fetching by this tool.
-        </p>
+        <div id="highlights-empty" class="highlights-empty">
+          No highlights yet. Click elements in the preview to get started.
+        </div>
+        <ul id="highlights-list" class="highlights-list"></ul>
       </section>
       <section class="preview">
         <iframe
