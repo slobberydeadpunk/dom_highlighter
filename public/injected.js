@@ -35,6 +35,9 @@
   beginHoverPoller();
   window.addEventListener("message", handleParentMessage, false);
   notifyParent("ready", { href: window.location.href });
+  
+  // 添加调试日志
+  console.log("[DOM Highlighter] 初始化完成，等待消息...");
 
   function bindEvents() {
     const pointerOptions = { capture: true, passive: true };
@@ -483,32 +486,49 @@
   }
 
   function handleParentMessage(event) {
+    console.log("[DOM Highlighter] 收到原始事件:", event);
+    console.log("[DOM Highlighter] event.origin:", event.origin);
+    console.log("[DOM Highlighter] ASSET_ORIGIN:", ASSET_ORIGIN);
+    
     if (!event || typeof event.data !== "object" || event.data === null) {
+      console.log("[DOM Highlighter] 事件数据无效");
       return;
     }
-    if (ASSET_ORIGIN && event.origin !== ASSET_ORIGIN) {
-      return;
-    }
+    
+    // 暂时禁用ASSET_ORIGIN检查进行调试
+    // if (ASSET_ORIGIN && event.origin !== ASSET_ORIGIN) {
+    //   console.log("[DOM Highlighter] Origin不匹配，跳过消息");
+    //   return;
+    // }
 
     const data = event.data;
     if (data.__domHighlighter !== true) {
+      console.log("[DOM Highlighter] 消息标志不匹配:", data);
       return;
     }
 
+    // 添加调试日志
+    console.log("[DOM Highlighter] 收到消息:", data);
+
     switch (data.type) {
       case "set-annotation":
+        console.log("[DOM Highlighter] 处理set-annotation消息:", data);
         handleSetAnnotationMessage(data);
         break;
       case "remove-highlight":
+        console.log("[DOM Highlighter] 处理remove-highlight消息:", data);
         handleRemoveHighlightMessage(data);
         break;
       case "clear-all":
+        console.log("[DOM Highlighter] 处理clear-all消息");
         handleClearAllMessage();
         break;
       case "replay-highlight":
+        console.log("[DOM Highlighter] 处理replay-highlight消息:", data);
         handleReplayHighlightMessage(data);
         break;
       default:
+        console.log("[DOM Highlighter] 未知消息类型:", data.type);
         break;
     }
   }
@@ -726,7 +746,8 @@
       type,
     });
     try {
-      window.parent.postMessage(message, ASSET_ORIGIN);
+      // 使用通配符"*"允许任何源，或者可以使用具体的父窗口源
+      window.parent.postMessage(message, "*");
     } catch (error) {
       // Swallow cross-origin errors silently.
     }
