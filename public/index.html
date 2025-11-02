@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DOM Highlighter</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="app">
@@ -48,13 +48,21 @@
         <ul id="highlights-list" class="highlights-list"></ul>
       </section>
       <section class="preview">
+        <webview
+          id="preview-webview"
+          class="preview-surface"
+          style="display: none"
+          partition="persist:dom-highlighter"
+          allowpopups
+        ></webview>
         <iframe
           id="preview-frame"
+          class="preview-surface"
           title="Preview frame"
           sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
         ></iframe>
       </section>
     </main>
-    <script src="/main.js"></script>
+    <script src="main.js"></script>
   </body>
 </html>

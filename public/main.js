@@ -1,8 +1,79 @@
 const MESSAGE_FLAG = "__domHighlighter";
 
+function getElectronBridge() {
+  return window.domHighlighterBridge || null;
+}
+
+function shouldUseElectron() {
+  return Boolean(getElectronBridge()) || /\bElectron\//i.test(navigator.userAgent);
+}
+
 const form = document.getElementById("preview-form");
 const input = document.getElementById("url-input");
-const frame = document.getElementById("preview-frame");
+const iframe = document.getElementById("preview-frame");
+const webview = document.getElementById("preview-webview");
+
+let frame = iframe;
+let usingElectron = false;
+let electronBridgeReady = false;
+let pendingElectronAssetPush = false;
+let cachedElectronAssets = null;
+let cachedElectronAssetsPromise = null;
+let electronAssetsInjected = false;
+let electronAssetsLoading = false;
+
+configurePreviewSurface();
+if (shouldUseElectron()) {
+  setTimeout(configurePreviewSurface, 50);
+}
+
+window.addEventListener("message", handleFrameEvent);
+if (webview) {
+  webview.addEventListener("ipc-message", handleWebviewMessage);
+  webview.addEventListener("did-fail-load", handleWebviewFailure);
+  webview.addEventListener("dom-ready", handleWebviewDomReady);
+}
+
+function configurePreviewSurface() {
+  const bridge = getElectronBridge();
+  const electron = shouldUseElectron();
+
+  if (electron && webview) {
+    const preloadPath =
+      bridge && typeof bridge.getWebviewPreloadPath === "function"
+        ? bridge.getWebviewPreloadPath()
+        : null;
+    if (preloadPath && webview.getAttribute("preload") !== preloadPath) {
+      webview.setAttribute("preload", preloadPath);
+    }
+    webview.style.display = "flex";
+    webview.style.flex = "1 1 auto";
+    webview.style.width = "100%";
+    webview.style.height = "100%";
+    webview.style.minHeight = "0";
+    if (iframe) {
+      iframe.style.display = "none";
+    }
+    frame = webview;
+    usingElectron = true;
+  } else {
+    if (webview) {
+      webview.style.display = "none";
+      webview.style.flex = "";
+      webview.style.width = "";
+      webview.style.height = "";
+    }
+    if (iframe) {
+      iframe.style.display = "block";
+      iframe.style.flex = "1 1 auto";
+      iframe.style.width = "100%";
+      iframe.style.height = "100%";
+      iframe.style.minHeight = "0";
+    }
+    frame = iframe;
+    usingElectron = false;
+  }
+}
 
 const highlightsList = document.getElementById("highlights-list");
 const highlightsEmpty = document.getElementById("highlights-empty");
@@ -16,6 +87,76 @@ const state = {
   messageQueue: [],
   isReplaying: false,
 };
+
+function loadElectronAssets() {
+  if (cachedElectronAssets) {
+    return Promise.resolve(cachedElectronAssets);
+  }
+  if (cachedElectronAssetsPromise) {
+    return cachedElectronAssetsPromise;
+  }
+  const bridge = getElectronBridge();
+  if (bridge && typeof bridge.getInjectedAssets === "function") {
+    cachedElectronAssetsPromise = Promise.resolve(
+      bridge.getInjectedAssets()
+    ).then((assets) => {
+      if (
+        assets &&
+        typeof assets.css === "string" &&
+        typeof assets.js === "string"
+      ) {
+        cachedElectronAssets = assets;
+        return assets;
+      }
+      return null;
+    });
+    return cachedElectronAssetsPromise;
+  }
+  return Promise.resolve(null);
+}
+
+function deliverAssetsToWebview() {
+  if (!usingElectron || !frame || typeof frame.send !== "function") {
+    return;
+  }
+
+  if (!electronBridgeReady) {
+    pendingElectronAssetPush = true;
+    return;
+  }
+
+  if (electronAssetsInjected || electronAssetsLoading) {
+    pendingElectronAssetPush = false;
+    return;
+  }
+
+  electronAssetsLoading = true;
+  loadElectronAssets()
+    .then((assets) => {
+      electronAssetsLoading = false;
+      if (!assets) {
+        pendingElectronAssetPush = true;
+        return;
+      }
+      pendingElectronAssetPush = false;
+      electronAssetsInjected = true;
+      if (usingElectron && frame && typeof frame.send === "function") {
+        frame.send("dom-highlighter", {
+          __domHighlighter: true,
+          type: "inject-assets",
+          css: assets.css,
+          js: assets.js,
+          config: {
+            assetOrigin: "electron-inline",
+          },
+        });
+      }
+    })
+    .catch(() => {
+      electronAssetsLoading = false;
+      pendingElectronAssetPush = true;
+    });
+}
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -33,25 +174,87 @@ exportButton.addEventListener("click", handleExport);
 replayButton.addEventListener("click", handleReplay);
 importInput.addEventListener("change", handleImport);
 
-window.addEventListener("message", handleFrameMessage);
-
 function navigatePreview(url) {
   resetHighlights(true);
   state.frameReady = false;
   state.messageQueue = [];
-  frame.src = `/render?url=${encodeURIComponent(url)}`;
-}
-
-function handleFrameMessage(event) {
-  if (event.source !== frame.contentWindow) {
+  configurePreviewSurface();
+  if (!frame) {
     return;
   }
-  const data = event.data;
+  if (usingElectron) {
+    electronBridgeReady = false;
+    pendingElectronAssetPush = true;
+    electronAssetsInjected = false;
+    frame.setAttribute("src", url);
+  } else {
+    electronBridgeReady = false;
+    pendingElectronAssetPush = false;
+    electronAssetsInjected = false;
+    frame.src = `/render?url=${encodeURIComponent(url)}`;
+  }
+}
+
+function handleFrameEvent(event) {
+  if (usingElectron) {
+    return;
+  }
+  if (!frame || !frame.contentWindow || event.source !== frame.contentWindow) {
+    return;
+  }
+  processPreviewPayload(event.data);
+}
+
+function handleWebviewMessage(event) {
+  if (!usingElectron) {
+    return;
+  }
+  if (!event || event.channel !== "dom-highlighter") {
+    return;
+  }
+  if (!Array.isArray(event.args) || !event.args.length) {
+    return;
+  }
+  processPreviewPayload(event.args[0]);
+}
+
+function handleWebviewFailure(event) {
+  if (!usingElectron || !event || event.errorCode === -3) {
+    return;
+  }
+  handlePreviewError({
+    message:
+      event.errorDescription ||
+      `Unable to load ${event.validatedURL || "the requested page"}.`,
+  });
+}
+
+function handleWebviewDomReady() {
+  if (!usingElectron) {
+    return;
+  }
+  deliverAssetsToWebview();
+}
+
+function processPreviewPayload(data) {
   if (!data || typeof data !== "object" || data[MESSAGE_FLAG] !== true) {
     return;
   }
 
+  console.debug("[DOM Highlighter] preview payload:", data);
+
   switch (data.type) {
+    case "bridge-ready":
+      electronBridgeReady = true;
+      console.debug("[DOM Highlighter] webview bridge ready");
+      if (pendingElectronAssetPush) {
+        deliverAssetsToWebview();
+      }
+      break;
+    case "injection-complete":
+      electronAssetsInjected = true;
+      console.debug("[DOM Highlighter] assets injected");
+      break;
     case "ready":
       state.frameReady = true;
       flushMessageQueue();
@@ -67,7 +270,11 @@ function handleFrameMessage(event) {
       handleReplayApplied(data);
       break;
     case "error":
-      handleFrameError(data);
+      if (typeof data.id === "string") {
+        handleFrameError(data);
+      } else {
+        handlePreviewError(data);
+      }
       break;
     default:
       break;
@@ -135,6 +342,23 @@ function handleFrameError(payload) {
   entry.active = false;
   entry.status = payload.code || "error";
   renderHighlights();
+}
+
+function handlePreviewError(payload) {
+  state.frameReady = false;
+  state.messageQueue = [];
+  if (usingElectron) {
+    electronAssetsInjected = false;
+    if (!electronBridgeReady) {
+      pendingElectronAssetPush = true;
+    }
+  }
+  const message =
+    payload && typeof payload.message === "string"
+      ? payload.message
+      : "Preview failed to load. Check the DevTools console for details.";
+  console.error("[DOM Highlighter] Preview error:", payload);
+  alert(message);
 }
 
 function resetHighlights(clearList) {
@@ -407,10 +631,6 @@ function focusHighlight(id) {
 }
 
 function postToFrame(message, { queue = true } = {}) {
-  if (!frame.contentWindow) {
-    return;
-  }
-
   const payload = Object.assign({}, message, {
     [MESSAGE_FLAG]: true,
   });
@@ -420,16 +640,24 @@ function postToFrame(message, { queue = true } = {}) {
     return;
   }
 
-  frame.contentWindow.postMessage(payload, window.location.origin);
+  if (usingElectron && frame && typeof frame.send === "function") {
+    frame.send("dom-highlighter", payload);
+  } else if (frame && frame.contentWindow) {
+    frame.contentWindow.postMessage(payload, window.location.origin);
+  }
 }
 
 function flushMessageQueue() {
-  if (!state.frameReady || !frame.contentWindow) {
+  if (!state.frameReady || !frame) {
     return;
   }
   while (state.messageQueue.length) {
     const payload = state.messageQueue.shift();
-    frame.contentWindow.postMessage(payload, window.location.origin);
+    if (usingElectron && frame && typeof frame.send === "function") {
+      frame.send("dom-highlighter", payload);
+    } else if (frame && frame.contentWindow) {
+      frame.contentWindow.postMessage(payload, window.location.origin);
+    }
   }
 }
 

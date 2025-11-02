@@ -2,14 +2,18 @@
   "name": "dom_highlighter",
   "version": "1.0.0",
   "description": "Preview a URL and interactively highlight DOM elements.",
-  "main": "server.js",
+  "main": "electron/main.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "electron .",
+    "web": "node server.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "electron": "^29.3.1"
   }
 }

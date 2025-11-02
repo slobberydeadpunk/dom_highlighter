@@ -4,6 +4,8 @@ Preview any public web page inside a sandboxed iframe, visually inspect its DOM,
 
 ## Features
 
+- **Chromium preview (Electron)** – launch the app as a desktop shell so remote
+  sites execute with a real browser engine, bypassing CORS and CSP hurdles.
 - **Live preview** – fetches the remote HTML server-side, rewrites it with a permissive base and injected scripts, then renders it in an iframe.
 - **Interactive highlighting** – hover to see a flashing outline; click to lock a highlight; double-click to remove a lock; `Esc` clears all locks.
 - **Inline annotations** – type notes for each locked element in the sidebar; annotations appear as floating callouts beside their elements only when content is present.
@@ -23,9 +25,17 @@ npm install
 npm start
 ```
 
-The server starts on [http://localhost:3000](http://localhost:3000).
+Running `npm start` launches the Electron desktop shell with a full Chromium
+preview surface. If you still need the browser-based version (e.g. for quick
+tests), run:
 
-> **Note:** The app fetches target pages from this server. If you run behind a reverse proxy, ensure `X-Forwarded-Proto` is set so asset URLs resolve correctly.
+```bash
+npm run web
+```
+
+and open [http://localhost:3000](http://localhost:3000).
+
+> **Note:** The web fallback fetches target pages from the local Express server. If you run behind a reverse proxy, ensure `X-Forwarded-Proto` is set so asset URLs resolve correctly.
 
 ## Using the App
 
@@ -70,7 +80,7 @@ Exports produce a file shaped like:
 
 ## Limitations & Tips
 
-- **CORS / mixed content**: Remote pages fetched over HTTPS may still reference insecure assets or run scripts that try cross-origin XHR. These are surfaced as console warnings/errors inside the iframe but do not block highlighting.
+- **CORS / mixed content**: In the Electron preview the embedded Chromium instance follows the site's own security model, so most browser-only pages just work. When using the web fallback (`npm run web`), the old iframe-based fetch is still subject to CORS quirks.
 - **Dynamic pages**: Sites that aggressively mutate the DOM may remove locks. The injector re-applies styles and removes entries whose elements disappear.
 - **Selectors**: Replaying imported highlights depends on selectors still matching. If markup changes, entries will be marked “Element not found.” You can update the annotation to document the gap or delete the highlight.
 - **Security**: The tool renders remote HTML directly. Avoid pointing it at untrusted internal sites unless you trust their scripts inside your browser sandbox.
@@ -79,6 +89,7 @@ Exports produce a file shaped like:
 
 ```
 .
+├── electron/          # Electron entry point + preload scripts
 ├── server.js          # Express server that fetches remote pages and injects assets
 ├── public/
 │   ├── index.html     # Main UI layout
@@ -94,7 +105,7 @@ Exports produce a file shaped like:
 
 - Express 5 is used with native `fetch`. No client build step—static assets are plain HTML/CSS/JS.
 - The server strips `<meta http-equiv="content-security-policy">` tags to ensure the injected scripts run.
-- Highlight annotations are exchanged with the parent via `postMessage`. Only messages flagged with `__domHighlighter` are processed.
+- Highlight annotations are exchanged with the parent via `postMessage` (browser) or a proxied IPC bridge (Electron). Only messages flagged with `__domHighlighter` are processed.
 
 ## License
 
