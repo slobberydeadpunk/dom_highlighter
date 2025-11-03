@@ -225,7 +225,7 @@ function handleWebviewFailure(event) {
   handlePreviewError({
     message:
       event.errorDescription ||
-      `Unable to load ${event.validatedURL || "the requested page"}.`,
+      `无法加载 ${event.validatedURL || "请求的页面"}。`,
   });
 }
 
@@ -298,7 +298,7 @@ function handleLockMessage(payload) {
   const entry = {
     id: payload.id,
     selector: payload.selector || "",
-    description: payload.description || payload.selector || "Element",
+    description: payload.description || payload.selector || "元素",
     annotation: "",
     active: true,
     status: "active",
@@ -356,7 +356,7 @@ function handlePreviewError(payload) {
   const message =
     payload && typeof payload.message === "string"
       ? payload.message
-      : "Preview failed to load. Check the DevTools console for details.";
+      : "预览加载失败。请检查开发者工具控制台以获取详细信息。";
   console.error("[DOM Highlighter] Preview error:", payload);
   alert(message);
 }
@@ -395,13 +395,13 @@ function renderHighlights() {
     const label = document.createElement("span");
     label.textContent = `${index + 1}. ${entry.description}`;
     const selector = document.createElement("span");
-    selector.textContent = entry.selector || "<no selector>";
+    selector.textContent = entry.selector || "<无选择器>";
     header.appendChild(label);
     header.appendChild(selector);
 
     const textarea = document.createElement("textarea");
     textarea.className = "highlight-annotation";
-    textarea.placeholder = "Add notes or annotations...";
+    textarea.placeholder = "添加备注或说明...";
     textarea.value = entry.annotation;
     textarea.addEventListener("change", (event) => {
       handleAnnotationChange(entry.id, event.target.value);
@@ -417,7 +417,7 @@ function renderHighlights() {
     const highlightButton = document.createElement("button");
     highlightButton.type = "button";
     highlightButton.className = "highlight-update";
-    highlightButton.textContent = "Highlight";
+    highlightButton.textContent = "高亮";
     highlightButton.addEventListener("click", () => {
       replaySingleHighlight(entry);
     });
@@ -425,7 +425,7 @@ function renderHighlights() {
     const removeButton = document.createElement("button");
     removeButton.type = "button";
     removeButton.className = "highlight-remove";
-    removeButton.textContent = "Remove";
+    removeButton.textContent = "删除";
     removeButton.addEventListener("click", () => {
       removeHighlightById(entry.id, { notifyIframe: true });
     });
@@ -444,15 +444,15 @@ function renderHighlights() {
 
 function describeStatus(entry) {
   if (entry.status === "not-found") {
-    return "Element not found on the page.";
+    return "页面中未找到该元素。";
   }
   if (entry.status === "lock-failed") {
-    return "Failed to highlight this element.";
+    return "无法高亮此元素。";
   }
   if (!entry.active) {
-    return "Stored locally. Replay to apply.";
+    return "已本地保存，重播后生效。";
   }
-  return "Active on preview.";
+  return "预览中已应用。";
 }
 
 function handleAnnotationChange(id, value) {
@@ -482,7 +482,7 @@ function removeHighlightById(id, { notifyIframe }) {
 
 function handleExport() {
   if (state.highlights.length === 0) {
-    alert("No highlights to export yet.");
+    alert("暂无可导出的高亮。");
     return;
   }
   const payload = {
@@ -522,20 +522,20 @@ async function handleImport(event) {
       ? parsed.highlights
       : null;
     if (!highlights) {
-      throw new Error("Invalid highlight data.");
+      throw new Error("高亮数据无效。");
     }
 
     state.highlights = highlights.map((item) => ({
       id: generateEntryId(),
       selector: item.selector || "",
-      description: item.description || item.selector || "Element",
+      description: item.description || item.selector || "元素",
       annotation: item.annotation || "",
       active: false,
       status: "pending",
     }));
     renderHighlights();
   } catch (error) {
-    alert("Failed to import highlights. Please check the JSON file.");
+    alert("导入高亮失败，请检查 JSON 文件。");
   } finally {
     event.target.value = "";
   }
@@ -543,14 +543,14 @@ async function handleImport(event) {
 
 async function handleReplay() {
   if (state.highlights.length === 0) {
-    alert("Add at least one highlight before replaying.");
+    alert("请先添加至少一个高亮再进行重播。");
     return;
   }
   if (state.isReplaying) {
     return;
   }
   if (!state.frameReady) {
-    alert("Preview is still loading. Try again in a moment.");
+    alert("预览仍在加载，请稍后再试。");
     return;
   }
 
@@ -584,11 +584,11 @@ async function handleReplay() {
 
 function replaySingleHighlight(entry) {
   if (!entry.selector) {
-    alert("This highlight does not have a selector to replay.");
+    alert("该高亮没有可用于重播的选择器。");
     return;
   }
   if (!state.frameReady) {
-    alert("Preview is not ready yet.");
+    alert("预览尚未就绪。");
     return;
   }
   postToFrame({

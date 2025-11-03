@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DOM Highlighter</title>
+    <title>DOM 高亮工具</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -14,10 +14,10 @@
             <input
               id="url-input"
               type="text"
-              placeholder="https://example.com"
+              placeholder="请输入要预览的 URL"
               autocomplete="off"
             />
-            <button type="submit">Preview</button>
+            <button type="submit">预览</button>
           </div>
         </form>
       </section>
@@ -25,10 +25,10 @@
         <div class="annotations-header">
           <!--<h2>Highlights</h2>-->
           <div class="annotation-actions">
-            <button id="replay-sequence" type="button">Replay</button>
-            <button id="export-json" type="button">Export JSON</button>
+            <button id="replay-sequence" type="button">重播</button>
+            <button id="export-json" type="button">导出 JSON</button>
             <label class="import-button">
-              Import
+              导入
               <input
                 id="import-json"
                 type="file"
@@ -38,12 +38,10 @@
           </div>
         </div>
         <p class="annotations-tip">
-          Click on the preview to lock an element. Add notes below. Double-click
-          a highlighted element to remove it. Use Replay to reapply highlights
-          from the list.
+          在预览中点击元素以锁定，下面可以添加备注。双击高亮元素可将其移除。使用“重播”按钮可按列表顺序重新应用高亮。
         </p>
         <div id="highlights-empty" class="highlights-empty">
-          No highlights yet. Click elements in the preview to get started.
+          暂无高亮。请在预览中点击元素开始标注。
         </div>
         <ul id="highlights-list" class="highlights-list"></ul>
       </section>
@@ -58,7 +56,7 @@
         <iframe
           id="preview-frame"
           class="preview-surface"
-          title="Preview frame"
+          title="预览窗口"
           sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
         ></iframe>
       </section>
