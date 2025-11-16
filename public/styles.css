@@ -117,6 +117,26 @@ button:hover {
   gap: 12px;
 }
 
+.annotation-actions--secondary {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.annotation-actions--secondary button {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  background: #f1f3f5;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s ease-in-out;
+}
+
+.annotation-actions--secondary button:hover {
+  background: #e9ecef;
+}
+
 .annotations-header h2 {
   font-size: 1.1rem;
   font-weight: 600;
@@ -211,39 +231,70 @@ button:hover {
 
 .highlight-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   font-size: 0.9rem;
   font-weight: 600;
   color: #1a1a1a;
 }
 
 .highlight-header span {
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: #495057;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.highlight-header .action-type,
+.highlight-header .action-selector,
+.highlight-header .action-value,
+.highlight-header .action-delay {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.highlight-header .action-type {
+  width: 160px;
+}
+
+.highlight-header .action-labels {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.action-fields {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .highlight-actions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .highlight-actions button {
   padding: 6px 12px;
   border-radius: 6px;
-  border: none;
+  border: 1px solid #ccd1f5;
   cursor: pointer;
   font-size: 0.8rem;
   font-weight: 500;
-  transition: background 0.2s ease-in-out;
+  transition: background 0.2s ease-in-out, box-shadow 0.15s ease-in-out,
+    transform 0.1s ease-in-out;
 }
 
 .highlight-actions button.highlight-remove {
   background: #f03e3e;
   color: #fff;
+  border-color: #e03131;
 }
 
 .highlight-actions button.highlight-remove:hover {
@@ -253,6 +304,7 @@ button:hover {
 .highlight-actions button.highlight-update {
   background: #228be6;
   color: #fff;
+  border-color: #1c7ed6;
 }
 
 .highlight-actions button.highlight-update:hover {

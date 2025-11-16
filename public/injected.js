@@ -517,6 +517,9 @@
       case "replay-highlight":
         handleReplayHighlightMessage(data);
         break;
+      case "perform-action":
+        handlePerformActionMessage(data);
+        break;
       default:
         break;
     }
@@ -565,6 +568,7 @@
         id: message.id,
         code: "not-found",
         selector: message.selector,
+        type: "highlight",
       });
       return;
     }
@@ -584,6 +588,7 @@
         id: message.id,
         code: "lock-failed",
         selector: message.selector,
+        type: "highlight",
       });
       return;
     }
@@ -597,7 +602,111 @@
     notifyParent("replay-applied", {
       id: message.id,
       selector: message.selector,
+      type: "highlight",
     });
+  }
+
+  function handlePerformActionMessage(message) {
+    if (!message || !message.action) {
+      return;
+    }
+    const action = normalizeIncomingAction(message.action);
+    if (!action || !action.id) {
+      return;
+    }
+
+    if (action.type === "highlight") {
+      handleReplayHighlightMessage(
+        Object.assign({}, action, {
+          id: action.id,
+          selector: action.selector,
+          annotation: action.annotation,
+          order: action.order,
+        })
+      );
+      return;
+    }
+
+    executeAction(action)
+      .then(() => {
+        notifyParent("action-complete", { id: action.id, type: action.type });
+      })
+      .catch((error) => {
+        notifyParent("action-error", {
+          id: action.id,
+          type: action.type,
+          code: (error && error.code) || "action-failed",
+        });
+      });
+  }
+
+  function executeAction(action) {
+    switch (action.type) {
+      case "click":
+        return performClickAction(action);
+      case "input":
+        return performInputAction(action);
+      case "wait":
+        return performWaitAction(action);
+      default:
+        return Promise.resolve();
+    }
+  }
+
+  async function performClickAction(action) {
+    const element = safeQuerySelector(action.selector);
+    if (!element) {
+      throw { code: "not-found" };
+    }
+    safeScrollIntoView(element);
+    focusElement(element);
+
+    const eventInit = {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+    };
+
+    element.dispatchEvent(new MouseEvent("mouseover", eventInit));
+    element.dispatchEvent(new MouseEvent("mousedown", eventInit));
+    element.dispatchEvent(new MouseEvent("mouseup", eventInit));
+    element.dispatchEvent(new MouseEvent("click", eventInit));
+  }
+
+  async function performInputAction(action) {
+    const element = safeQuerySelector(action.selector);
+    if (!element) {
+      throw { code: "not-found" };
+    }
+
+    safeScrollIntoView(element);
+    focusElement(element);
+
+    const value =
+      typeof action.value === "string" || typeof action.value === "number"
+        ? String(action.value)
+        : "";
+
+    if ("value" in element) {
+      element.value = value;
+    } else {
+      element.textContent = value;
+    }
+
+    element.dispatchEvent(
+      new Event("input", { bubbles: true, cancelable: true })
+    );
+    element.dispatchEvent(
+      new Event("change", { bubbles: true, cancelable: true })
+    );
+  }
+
+  function performWaitAction(action) {
+    const duration =
+      typeof action.durationMs === "number" && action.durationMs >= 0
+        ? action.durationMs
+        : 400;
+    return delay(duration);
   }
 
   function safeQuerySelector(selector) {
@@ -641,6 +750,56 @@
     }
 
     return null;
+  }
+
+  function normalizeIncomingAction(action) {
+    if (!action || typeof action !== "object") {
+      return null;
+    }
+    const type =
+      action.type === "click" || action.type === "input" || action.type === "wait"
+        ? action.type
+        : "highlight";
+    return {
+      id: action.id || generateId(),
+      type,
+      selector: typeof action.selector === "string" ? action.selector : "",
+      annotation:
+        typeof action.annotation === "string" ? action.annotation : undefined,
+      value: action.value,
+      order:
+        typeof action.order === "number" && Number.isFinite(action.order)
+          ? action.order
+          : null,
+      durationMs:
+        typeof action.durationMs === "number" && Number.isFinite(action.durationMs)
+          ? action.durationMs
+          : typeof action.delayMs === "number" && Number.isFinite(action.delayMs)
+          ? action.delayMs
+          : undefined,
+    };
+  }
+
+  function safeScrollIntoView(element) {
+    try {
+      element.scrollIntoView({ behavior: "auto", block: "center" });
+    } catch (_error) {
+      // ignore
+    }
+  }
+
+  function focusElement(element) {
+    if (typeof element.focus === "function") {
+      try {
+        element.focus({ preventScroll: true });
+      } catch (_error) {
+        // ignore focus errors
+      }
+    }
+  }
+
+  function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms || 0));
   }
 
   function resolveEntry(target) {

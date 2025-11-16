@@ -1,4 +1,5 @@
 const MESSAGE_FLAG = "__domHighlighter";
+const SCENE_VERSION = 1;
 
 function getElectronBridge() {
   return window.domHighlighterBridge || null;
@@ -80,13 +81,20 @@ const highlightsEmpty = document.getElementById("highlights-empty");
 const exportButton = document.getElementById("export-json");
 const importInput = document.getElementById("import-json");
 const replayButton = document.getElementById("replay-sequence");
+const addActionButton = document.getElementById("add-action");
+const addWaitButton = document.getElementById("add-wait");
+const openFlowButton = document.getElementById("open-flow");
 
 const state = {
+  sceneName: "未命名场景",
   highlights: [],
   frameReady: false,
   messageQueue: [],
   isReplaying: false,
 };
+const pendingActionResolvers = new Map();
+const flowChannel = new BroadcastChannel("dom-highlighter-flow");
+let flowWindow = null;
 
 function loadElectronAssets() {
   if (cachedElectronAssets) {
@@ -173,11 +181,23 @@ form.addEventListener("submit", (event) => {
 exportButton.addEventListener("click", handleExport);
 replayButton.addEventListener("click", handleReplay);
 importInput.addEventListener("change", handleImport);
+addActionButton.addEventListener("click", () => {
+  addManualAction("highlight");
+});
+addWaitButton.addEventListener("click", () => {
+  addManualAction("wait");
+});
+openFlowButton.addEventListener("click", openFlowWindow);
+flowChannel.onmessage = handleFlowChannel;
 
 function navigatePreview(url) {
   resetHighlights(true);
   state.frameReady = false;
   state.messageQueue = [];
+  pendingActionResolvers.forEach((resolver) =>
+    resolver({ status: "error", code: "navigation" })
+  );
+  pendingActionResolvers.clear();
   configurePreviewSurface();
   if (!frame) {
     return;
@@ -260,6 +280,12 @@ function processPreviewPayload(data) {
       flushMessageQueue();
       syncOrdersToIframe();
       break;
+    case "action-complete":
+      handleActionComplete(data);
+      break;
+    case "action-error":
+      handleActionError(data);
+      break;
     case "lock":
       handleLockMessage(data);
       break;
@@ -297,6 +323,7 @@ function handleLockMessage(payload) {
 
   const entry = {
     id: payload.id,
+    type: "highlight",
     selector: payload.selector || "",
     description: payload.description || payload.selector || "元素",
     annotation: "",
@@ -327,8 +354,48 @@ function handleReplayApplied(payload) {
   }
   entry.active = true;
   entry.status = "active";
+  resolvePendingAction(entry.id, { status: "applied", type: "highlight" });
   renderHighlights();
   syncOrdersToIframe();
+  sendFlowSnapshot();
+}
+
+function handleActionComplete(payload) {
+  if (!payload || !payload.id) {
+    return;
+  }
+  const entry = state.highlights.find((item) => item.id === payload.id);
+  if (entry) {
+    entry.status = "done";
+    if (entry.type === "highlight") {
+      entry.active = true;
+    }
+  }
+  resolvePendingAction(payload.id, {
+    status: "complete",
+    type: (entry && entry.type) || payload.type,
+  });
+  renderHighlights();
+  syncOrdersToIframe();
+  sendFlowSnapshot();
+}
+
+function handleActionError(payload) {
+  if (!payload || !payload.id) {
+    return;
+  }
+  const entry = state.highlights.find((item) => item.id === payload.id);
+  if (entry) {
+    entry.active = false;
+    entry.status = payload.code || "action-failed";
+  }
+  resolvePendingAction(payload.id, {
+    status: "error",
+    type: (entry && entry.type) || payload.type,
+    code: payload.code || "action-failed",
+  });
+  renderHighlights();
+  sendFlowSnapshot();
 }
 
 function handleFrameError(payload) {
@@ -341,12 +408,22 @@ function handleFrameError(payload) {
   }
   entry.active = false;
   entry.status = payload.code || "error";
+  resolvePendingAction(entry.id, {
+    status: "error",
+    code: payload.code || "error",
+    type: entry.type || "highlight",
+  });
   renderHighlights();
+  sendFlowSnapshot();
 }
 
 function handlePreviewError(payload) {
   state.frameReady = false;
   state.messageQueue = [];
+  pendingActionResolvers.forEach((resolver) =>
+    resolver({ status: "error", code: "preview-error" })
+  );
+  pendingActionResolvers.clear();
   if (usingElectron) {
     electronAssetsInjected = false;
     if (!electronBridgeReady) {
@@ -378,6 +455,7 @@ function renderHighlights() {
 
   if (state.highlights.length === 0) {
     highlightsEmpty.classList.remove("is-hidden");
+    sendFlowSnapshot();
     return;
   }
 
@@ -393,11 +471,65 @@ function renderHighlights() {
     const header = document.createElement("div");
     header.className = "highlight-header";
     const label = document.createElement("span");
-    label.textContent = `${index + 1}. ${entry.description}`;
-    const selector = document.createElement("span");
-    selector.textContent = entry.selector || "<无选择器>";
-    header.appendChild(label);
-    header.appendChild(selector);
+    const typeLabel = describeActionType(entry.type);
+    label.textContent = `${index + 1}. [${typeLabel}]`;
+    const fields = document.createElement("div");
+    fields.className = "action-fields";
+
+    const selector = document.createElement("input");
+    selector.type = "text";
+    selector.className = "action-selector";
+    selector.placeholder =
+      entry.type === "wait" ? "等待动作无需选择器" : "CSS 选择器";
+    selector.value = entry.selector || "";
+    selector.disabled = entry.type === "wait";
+    selector.addEventListener("change", (event) => {
+      handleSelectorChange(entry.id, event.target.value);
+    });
+    fields.appendChild(selector);
+
+    const valueInput = document.createElement("input");
+    valueInput.type = "text";
+    valueInput.className = "action-value";
+    valueInput.placeholder = "输入内容（仅输入动作）";
+    valueInput.value = entry.value || "";
+    valueInput.style.display = entry.type === "input" ? "block" : "none";
+    valueInput.addEventListener("change", (event) => {
+      handleValueChange(entry.id, event.target.value);
+    });
+    fields.appendChild(valueInput);
+
+    const delayInput = document.createElement("input");
+    delayInput.type = "number";
+    delayInput.className = "action-delay";
+    delayInput.placeholder =
+      entry.type === "wait" ? "等待时长(ms)" : "步骤间延时(ms)";
+    delayInput.value =
+      typeof entry.delayMs === "number" ? String(entry.delayMs) : "";
+    delayInput.addEventListener("change", (event) => {
+      handleDelayChange(entry.id, event.target.valueAsNumber || event.target.value);
+    });
+    fields.appendChild(delayInput);
+    const typeSelect = document.createElement("select");
+    typeSelect.className = "action-type";
+    ["highlight", "click", "input", "wait"].forEach((optionType) => {
+      const option = document.createElement("option");
+      option.value = optionType;
+      option.textContent = describeActionType(optionType);
+      if (optionType === entry.type) {
+        option.selected = true;
+      }
+      typeSelect.appendChild(option);
+    });
+    typeSelect.addEventListener("change", (event) => {
+      handleTypeChange(entry.id, event.target.value);
+    });
+    const labelRow = document.createElement("div");
+    labelRow.className = "action-labels";
+    labelRow.appendChild(label);
+    labelRow.appendChild(typeSelect);
+    header.appendChild(labelRow);
+    header.appendChild(fields);
 
     const textarea = document.createElement("textarea");
     textarea.className = "highlight-annotation";
@@ -414,12 +546,26 @@ function renderHighlights() {
     const actions = document.createElement("div");
     actions.className = "highlight-actions";
 
-    const highlightButton = document.createElement("button");
-    highlightButton.type = "button";
-    highlightButton.className = "highlight-update";
-    highlightButton.textContent = "高亮";
-    highlightButton.addEventListener("click", () => {
-      replaySingleHighlight(entry);
+    const runButton = document.createElement("button");
+    runButton.type = "button";
+    runButton.className = "highlight-update";
+    runButton.textContent = "执行";
+    runButton.addEventListener("click", () => {
+      executeSingleAction(entry);
+    });
+
+    const moveUp = document.createElement("button");
+    moveUp.type = "button";
+    moveUp.textContent = "上移";
+    moveUp.addEventListener("click", () => {
+      moveAction(entry.id, -1);
+    });
+
+    const moveDown = document.createElement("button");
+    moveDown.type = "button";
+    moveDown.textContent = "下移";
+    moveDown.addEventListener("click", () => {
+      moveAction(entry.id, 1);
     });
 
     const removeButton = document.createElement("button");
@@ -430,7 +576,9 @@ function renderHighlights() {
       removeHighlightById(entry.id, { notifyIframe: true });
     });
 
-    actions.appendChild(highlightButton);
+    actions.appendChild(runButton);
+    actions.appendChild(moveUp);
+    actions.appendChild(moveDown);
     actions.appendChild(removeButton);
 
     item.appendChild(header);
@@ -440,19 +588,47 @@ function renderHighlights() {
 
     highlightsList.appendChild(item);
   });
+
+  sendFlowSnapshot();
 }
 
 function describeStatus(entry) {
+  if (entry.status === "running") {
+    return "执行中...";
+  }
+  if (entry.status === "done" || entry.status === "complete") {
+    return "已完成。";
+  }
   if (entry.status === "not-found") {
     return "页面中未找到该元素。";
   }
   if (entry.status === "lock-failed") {
     return "无法高亮此元素。";
   }
+  if (entry.status === "timeout") {
+    return "等待结果超时。";
+  }
+  if (entry.status === "action-failed") {
+    return "动作执行失败。";
+  }
   if (!entry.active) {
     return "已本地保存，重播后生效。";
   }
   return "预览中已应用。";
+}
+
+function describeActionType(type) {
+  switch (type) {
+    case "click":
+      return "点击";
+    case "input":
+      return "输入";
+    case "wait":
+      return "等待";
+    case "highlight":
+    default:
+      return "高亮";
+  }
 }
 
 function handleAnnotationChange(id, value) {
@@ -462,6 +638,71 @@ function handleAnnotationChange(id, value) {
   }
   entry.annotation = value.trim();
   syncOrdersToIframe();
+  sendFlowSnapshot();
+}
+
+function handleSelectorChange(id, value) {
+  const entry = state.highlights.find((item) => item.id === id);
+  if (!entry) {
+    return;
+  }
+  entry.selector = value.trim();
+  sendFlowSnapshot();
+}
+
+function handleValueChange(id, value) {
+  const entry = state.highlights.find((item) => item.id === id);
+  if (!entry) {
+    return;
+  }
+  entry.value = value;
+  sendFlowSnapshot();
+}
+
+function handleDelayChange(id, value) {
+  const entry = state.highlights.find((item) => item.id === id);
+  if (!entry) {
+    return;
+  }
+  const numeric = Number(value);
+  entry.delayMs = Number.isFinite(numeric) ? numeric : undefined;
+  sendFlowSnapshot();
+}
+
+function handleTypeChange(id, type) {
+  const entry = state.highlights.find((item) => item.id === id);
+  if (!entry) {
+    return;
+  }
+  entry.type = coerceActionType(type);
+  if (entry.type === "wait") {
+    entry.selector = "";
+  }
+  if (entry.type !== "input") {
+    entry.value = "";
+  }
+  entry.status = "pending";
+  renderHighlights();
+  sendFlowSnapshot();
+}
+
+function addManualAction(type) {
+  const actionType = coerceActionType(type);
+  const entry = {
+    id: generateEntryId(),
+    type: actionType,
+    selector: "",
+    description: describeActionType(actionType),
+    annotation: "",
+    value: "",
+    delayMs: actionType === "wait" ? 400 : undefined,
+    active: false,
+    status: "pending",
+  };
+  state.highlights.push(entry);
+  renderHighlights();
+  focusHighlight(entry.id);
+  sendFlowSnapshot();
 }
 
 function removeHighlightById(id, { notifyIframe }) {
@@ -471,13 +712,30 @@ function removeHighlightById(id, { notifyIframe }) {
   }
   const [removed] = state.highlights.splice(index, 1);
   renderHighlights();
-  if (notifyIframe && removed && removed.active) {
+  if (notifyIframe && removed && removed.active && removed.type === "highlight") {
     postToFrame({
       type: "remove-highlight",
       id,
     });
   }
   syncOrdersToIframe();
+  sendFlowSnapshot();
+}
+
+function moveAction(id, direction) {
+  const index = state.highlights.findIndex((item) => item.id === id);
+  if (index === -1) {
+    return;
+  }
+  const targetIndex = index + direction;
+  if (targetIndex < 0 || targetIndex >= state.highlights.length) {
+    return;
+  }
+  const tmp = state.highlights[targetIndex];
+  state.highlights[targetIndex] = state.highlights[index];
+  state.highlights[index] = tmp;
+  renderHighlights();
+  sendFlowSnapshot();
 }
 
 function handleExport() {
@@ -485,15 +743,7 @@ function handleExport() {
     alert("暂无可导出的高亮。");
     return;
   }
-  const payload = {
-    generatedAt: new Date().toISOString(),
-    highlights: state.highlights.map((entry, index) => ({
-      order: index + 1,
-      selector: entry.selector,
-      description: entry.description,
-      annotation: entry.annotation,
-    })),
-  };
+  const payload = buildScenePayload();
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
     type: "application/json",
@@ -501,7 +751,7 @@ function handleExport() {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `dom-highlights-${Date.now()}.json`;
+  anchor.download = `dom-scene-${Date.now()}.json`;
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
@@ -516,23 +766,18 @@ async function handleImport(event) {
   try {
     const contents = await file.text();
     const parsed = JSON.parse(contents);
-    const highlights = Array.isArray(parsed)
-      ? parsed
-      : Array.isArray(parsed.highlights)
-      ? parsed.highlights
-      : null;
-    if (!highlights) {
+    const imported = extractActionsFromImport(parsed);
+    if (!imported || !imported.actions.length) {
       throw new Error("高亮数据无效。");
     }
 
-    state.highlights = highlights.map((item) => ({
-      id: generateEntryId(),
-      selector: item.selector || "",
-      description: item.description || item.selector || "元素",
-      annotation: item.annotation || "",
-      active: false,
-      status: "pending",
-    }));
+    state.sceneName =
+      typeof imported.name === "string" && imported.name.trim().length
+        ? imported.name.trim()
+        : state.sceneName;
+    state.highlights = imported.actions.map((item, index) =>
+      normalizeImportedAction(item, index)
+    );
     renderHighlights();
   } catch (error) {
     alert("导入高亮失败，请检查 JSON 文件。");
@@ -541,9 +786,98 @@ async function handleImport(event) {
   }
 }
 
+function buildScenePayload() {
+  const actions = state.highlights.map((entry, index) =>
+    serializeActionForExport(entry, index)
+  );
+
+  const highlightCompat = actions
+    .filter((item) => item.type === "highlight")
+    .map((item) => ({
+      order: item.order,
+      selector: item.selector,
+      description: item.description,
+      annotation: item.annotation,
+    }));
+
+  return {
+    version: SCENE_VERSION,
+    name: state.sceneName || "未命名场景",
+    generatedAt: new Date().toISOString(),
+    actions,
+    highlights: highlightCompat,
+  };
+}
+
+function serializeActionForExport(entry, index) {
+  const type = coerceActionType(entry.type);
+  const payload = {
+    id: entry.id,
+    type,
+    order: index + 1,
+    selector: entry.selector || "",
+    description:
+      entry.description || entry.selector || describeActionType(type) || "动作",
+    annotation: entry.annotation || "",
+  };
+  if (type === "input" && typeof entry.value === "string") {
+    payload.value = entry.value;
+  }
+  if (typeof entry.delayMs === "number") {
+    payload.delayMs = entry.delayMs;
+  }
+  if (typeof entry.durationMs === "number") {
+    payload.durationMs = entry.durationMs;
+  }
+  return payload;
+}
+
+function extractActionsFromImport(parsed) {
+  if (!parsed) {
+    return { actions: [] };
+  }
+  if (Array.isArray(parsed)) {
+    return { actions: parsed, name: "未命名场景" };
+  }
+  if (Array.isArray(parsed.actions)) {
+    return { actions: parsed.actions, name: parsed.name || parsed.title };
+  }
+  if (Array.isArray(parsed.highlights)) {
+    return {
+      actions: parsed.highlights.map((item) =>
+        Object.assign({}, item, { type: item.type || "highlight" })
+      ),
+      name: parsed.name || parsed.title,
+    };
+  }
+  return { actions: [] };
+}
+
+function normalizeImportedAction(item, index) {
+  const type = coerceActionType(item.type);
+  return {
+    id: generateEntryId(),
+    type,
+    selector: item.selector || "",
+    description:
+      item.description || item.selector || describeActionType(type) || "动作",
+    annotation:
+      typeof item.annotation === "string"
+        ? item.annotation
+        : typeof item.note === "string"
+        ? item.note
+        : "",
+    value: typeof item.value === "string" ? item.value : "",
+    delayMs: normalizeDuration(item.delayMs, item.durationMs),
+    active: false,
+    status: "pending",
+    order: typeof item.order === "number" ? item.order : index + 1,
+  };
+}
+
 async function handleReplay() {
   if (state.highlights.length === 0) {
-    alert("请先添加至少一个高亮再进行重播。");
+    alert("请先添加至少一个动作再进行重播。");
     return;
   }
   if (state.isReplaying) {
@@ -563,41 +897,168 @@ async function handleReplay() {
   });
   renderHighlights();
 
-  postToFrame({ type: "clear-all" });
-  await delay(200);
-
-  for (let i = 0; i < state.highlights.length; i++) {
-    const entry = state.highlights[i];
-    postToFrame({
-      type: "replay-highlight",
-      id: entry.id,
-      selector: entry.selector,
-      annotation: entry.annotation,
-      order: i + 1,
-    });
-    await delay(400);
-  }
+  await runActionSequence(state.highlights, { clearBefore: true });
 
   state.isReplaying = false;
   replayButton.disabled = false;
 }
 
-function replaySingleHighlight(entry) {
-  if (!entry.selector) {
-    alert("该高亮没有可用于重播的选择器。");
+async function executeSingleAction(entry) {
+  if (!entry) {
     return;
   }
   if (!state.frameReady) {
     alert("预览尚未就绪。");
     return;
   }
-  postToFrame({
-    type: "replay-highlight",
-    id: entry.id,
-    selector: entry.selector,
-    annotation: entry.annotation,
-    order: state.highlights.indexOf(entry) + 1,
+  await runActionSequence([entry], { clearBefore: false });
+}
+
+async function runActionSequence(actions, { clearBefore = false } = {}) {
+  if (!actions || actions.length === 0) {
+    return;
+  }
+
+  if (clearBefore) {
+    postToFrame({ type: "clear-all" });
+    await delay(200);
+  }
+
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i];
+    const order = i + 1;
+    action.active = false;
+    action.status = "running";
+    renderHighlights();
+
+    const payload = buildActionPayload(action, order);
+    if (!payload) {
+      action.status = "action-failed";
+      renderHighlights();
+      continue;
+    }
+
+    const resultPromise = waitForActionResult(action.id);
+    postToFrame({ type: "perform-action", action: payload });
+
+    const result = await resultPromise;
+    applyActionResult(action, result);
+    renderHighlights();
+
+    const waitMs =
+      typeof action.delayMs === "number" && action.delayMs >= 0
+        ? action.delayMs
+        : 400;
+    await delay(waitMs);
+  }
+}
+
+function buildActionPayload(action, order) {
+  if (!action) {
+    return null;
+  }
+  const type = action.type || "highlight";
+
+  if (type === "wait") {
+    return {
+      id: action.id,
+      type,
+      durationMs:
+        typeof action.durationMs === "number"
+          ? action.durationMs
+          : typeof action.delayMs === "number"
+          ? action.delayMs
+          : 400,
+      order,
+    };
+  }
+
+  if (!action.selector) {
+    return null;
+  }
+
+  return {
+    id: action.id,
+    type,
+    selector: action.selector,
+    annotation: action.annotation,
+    value: action.value,
+    order,
+  };
+}
+
+function applyActionResult(action, result) {
+  if (!action) {
+    return;
+  }
+  if (!result) {
+    action.status = "timeout";
+    return;
+  }
+  if (result.status === "timeout") {
+    action.status = "timeout";
+    return;
+  }
+  if (result.status === "error") {
+    action.status = result.code || "action-failed";
+    return;
+  }
+  if (result.status === "applied") {
+    action.status = "active";
+    action.active = true;
+    return;
+  }
+  if (result.status === "complete" || result.status === "done") {
+    action.status = "done";
+    return;
+  }
+  action.status = result.status || "pending";
+}
+
+function waitForActionResult(id, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    if (!id) {
+      resolve({ status: "invalid" });
+      return;
+    }
+    const timer = setTimeout(() => {
+      resolve({ status: "timeout" });
+      pendingActionResolvers.delete(id);
+    }, timeoutMs);
+    pendingActionResolvers.set(id, (payload) => {
+      clearTimeout(timer);
+      pendingActionResolvers.delete(id);
+      resolve(payload);
+    });
   });
+}
+
+function resolvePendingAction(id, payload) {
+  if (!id) {
+    return;
+  }
+  const resolver = pendingActionResolvers.get(id);
+  if (resolver) {
+    pendingActionResolvers.delete(id);
+    resolver(payload);
+  }
+}
+
+function normalizeDuration(delayMs, durationMs) {
+  if (typeof delayMs === "number" && Number.isFinite(delayMs)) {
+    return delayMs;
+  }
+  if (typeof durationMs === "number" && Number.isFinite(durationMs)) {
+    return durationMs;
+  }
+  return undefined;
+}
+
+function coerceActionType(type) {
+  if (type === "click" || type === "input" || type === "wait") {
+    return type;
+  }
+  return "highlight";
 }
 
 function syncOrdersToIframe() {
@@ -605,7 +1066,7 @@ function syncOrdersToIframe() {
     return;
   }
   state.highlights.forEach((entry, index) => {
-    if (!entry.active) {
+    if (!entry.active || entry.type !== "highlight") {
       return;
     }
     postToFrame(
@@ -661,6 +1122,67 @@ function flushMessageQueue() {
   }
 }
 
+function sendFlowSnapshot() {
+  flowChannel.postMessage({
+    type: "actions",
+    actions: state.highlights.map((item, index) => ({
+      id: item.id,
+      type: item.type || "highlight",
+      selector: item.selector || "",
+      description:
+        item.description || item.selector || describeActionType(item.type),
+      annotation: item.annotation || "",
+      status: item.status || "pending",
+      order: index + 1,
+    })),
+    sceneName: state.sceneName,
+  });
+}
+
+function handleFlowChannel(event) {
+  const data = event && event.data;
+  if (!data || typeof data !== "object") {
+    return;
+  }
+  if (data.type === "request-actions") {
+    sendFlowSnapshot();
+  } else if (data.type === "reorder" && Array.isArray(data.order)) {
+    applyExternalOrder(data.order);
+  }
+}
+
+function applyExternalOrder(orderIds) {
+  if (!Array.isArray(orderIds) || orderIds.length === 0) {
+    return;
+  }
+  const newList = [];
+  const lookup = new Map(state.highlights.map((item) => [item.id, item]));
+  orderIds.forEach((id) => {
+    if (lookup.has(id)) {
+      newList.push(lookup.get(id));
+      lookup.delete(id);
+    }
+  });
+  for (const leftover of lookup.values()) {
+    newList.push(leftover);
+  }
+  if (newList.length) {
+    state.highlights = newList;
+    renderHighlights();
+    syncOrdersToIframe();
+    sendFlowSnapshot();
+  }
+}
+
+function openFlowWindow() {
+  if (flowWindow && !flowWindow.closed) {
+    flowWindow.focus();
+    return;
+  }
+  const url = new URL("flow.html", window.location.href);
+  flowWindow = window.open(url.toString(), "dom-highlighter-flow");
+  setTimeout(sendFlowSnapshot, 100);
+}
 function normalizeUrl(value) {
   return /^https?:\/\//i.test(value) ? value : `https://${value}`;
 }

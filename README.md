@@ -11,6 +11,7 @@ Preview any public web page inside a sandboxed iframe, visually inspect its DOM,
 - **Inline annotations** – type notes for each locked element in the sidebar; annotations appear as floating callouts beside their elements only when content is present.
 - **Replay & persistence** – export the current highlight sequence as JSON, import it back, or replay the sequence to restore highlights in order (helpful for walkthroughs or reviews).
 - **Resilient injection** – automatically restores injected assets if the remote page attempts to remove them and keeps annotations positioned on scroll/resize.
+- **Flow view (dual-screen friendly)** – open a separate流程图窗口 via **流程图**按钮查看/调整动作顺序，主界面与流程图实时同步。
 
 ## Getting Started
 
@@ -58,11 +59,45 @@ and open [http://localhost:3000](http://localhost:3000).
 
 ## JSON Format
 
-Exports produce a file shaped like:
+Exports now describe a **scene** composed of ordered actions (macro-style). Example:
 
 ```json
 {
+  "version": 1,
+  "name": "示例场景",
   "generatedAt": "2024-11-30T10:45:00.123Z",
+  "actions": [
+    {
+      "id": "a1",
+      "order": 1,
+      "type": "highlight",
+      "selector": "#hero h1",
+      "description": "h1#hero-title (512×96)",
+      "annotation": "Primary headline"
+    },
+    {
+      "id": "a2",
+      "order": 2,
+      "type": "click",
+      "selector": ".cta-button",
+      "annotation": "点击 CTA"
+    },
+    {
+      "id": "a3",
+      "order": 3,
+      "type": "input",
+      "selector": "input[name=email]",
+      "value": "test@example.com",
+      "annotation": "输入邮箱"
+    },
+    {
+      "id": "a4",
+      "order": 4,
+      "type": "wait",
+      "durationMs": 500,
+      "annotation": "等待接口完成"
+    }
+  ],
   "highlights": [
     {
       "order": 1,
@@ -74,9 +109,10 @@ Exports produce a file shaped like:
 }
 ```
 
+- `type` supports `highlight`, `click`, `input`, `wait` (more can be added later).
 - `selector` is the CSS path used during replay (best-effort, based on tag/id/class/nth-of-type).
 - `annotation` holds the user-supplied note (empty strings are ignored by the overlay).
-- When importing, you can provide an array of highlights directly or wrap them in the object shown above.
+- The `highlights` array remains for backward compatibility with older exports; new clients prefer the `actions` list.
 
 ## Limitations & Tips
 

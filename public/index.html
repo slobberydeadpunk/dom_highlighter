@@ -35,11 +35,16 @@
                 accept="application/json"
               />
             </label>
+            <button id="open-flow" type="button">流程图</button>
           </div>
         </div>
         <p class="annotations-tip">
           在预览中点击元素以锁定，下面可以添加备注。双击高亮元素可将其移除。使用“重播”按钮可按列表顺序重新应用高亮。
         </p>
+        <div class="annotation-actions--secondary">
+          <button id="add-action" type="button">添加动作</button>
+          <button id="add-wait" type="button">添加等待</button>
+        </div>
         <div id="highlights-empty" class="highlights-empty">
           暂无高亮。请在预览中点击元素开始标注。
         </div>
